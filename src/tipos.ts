@@ -43,6 +43,7 @@ export interface Sinais {
   malicioso?: boolean;
   rce?: boolean;
   exploits?: Exploit[];
+  resumo?: string;
 }
 
 export interface Pacote {

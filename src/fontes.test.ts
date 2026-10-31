@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { sinaisDeOsv } from "./fontes";
-import { compactar, lerRegistroCve, parteLocal } from "./registro";
+import { compactar, ehRce, lerRegistroCve, parteLocal } from "./registro";
 import { decidir } from "./veredito";
 
 describe("lerRegistroCve", () => {
@@ -45,6 +45,15 @@ describe("sinais de RCE e exploit no registro", () => {
     expect(lerRegistroCve({ containers: { cna: { descriptions: [{ lang: "en", value: "allows remote code execution" }] } } }).rce).toBe(true);
     expect(lerRegistroCve({ containers: { cna: { problemTypes: [{ descriptions: [{ cweId: "CWE-78" }] }] } } }).rce).toBe(true);
     expect(lerRegistroCve({ containers: { cna: { descriptions: [{ lang: "en", value: "server-side request forgery" }] } } }).rce).toBe(false);
+  });
+  it("XSS não vira execução de código, nem com CWE-94 nem falando em arbitrary code", () => {
+    expect(ehRce("Library CMS cross site scripting", ["CWE-79", "CWE-94"])).toBe(false);
+    expect(ehRce("A reflected XSS allows attackers to execute arbitrary code in the browser", [])).toBe(false);
+  });
+  it("menção explícita a RCE vale, mesmo junto de outra falha", () => {
+    expect(ehRce("SQL injection leading to remote code execution", [])).toBe(true);
+    expect(ehRce("OS command injection", [])).toBe(true);
+    expect(ehRce("deserialization of untrusted data", ["CWE-502"])).toBe(true);
   });
   it("pega só referência marcada como exploit, e só http", () => {
     const r = lerRegistroCve({ containers: { cna: { references: [
@@ -98,5 +107,18 @@ describe("compactar", () => {
   });
   it("rejeitado continua rejeitado", () => {
     expect(parteLocal(compactar({ estado: "rejeitado" })).estado).toBe("rejeitado");
+  });
+});
+
+describe("legenda de CVE sem título nem produto", () => {
+  const longo = "A very long description of a problem that keeps going and going until it certainly passes the limit of characters allowed.";
+  it("usa o começo da descrição, sem cortar palavra", () => {
+    const r = parteLocal(compactar({ estado: "publicado", descricao: longo }));
+    expect(r.resumo!.length).toBeLessThanOrEqual(111);
+    expect(r.resumo!.endsWith("…")).toBe(true);
+    expect(longo.startsWith(r.resumo!.slice(0, -1))).toBe(true);
+  });
+  it("não guarda legenda quando já tem título e produto", () => {
+    expect(compactar({ estado: "publicado", titulo: "t", produto: "p", descricao: longo }).u).toBeUndefined();
   });
 });

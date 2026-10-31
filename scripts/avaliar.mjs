@@ -6,6 +6,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
+import { buscarEm } from "../src/busca.ts";
 import { parteLocal } from "../src/registro.ts";
 import { decidir } from "../src/veredito.ts";
 
@@ -82,6 +83,8 @@ for (const ano of readdirSync(PASTA)) {
         }
       }
       if (CASOS[id]) casos[id] = nivel;
+      // XSS marcado com CWE-94: não pode ganhar a etiqueta de execução de código.
+      if (id === "CVE-2025-3688" && s.rce) violou("XSS marcado como execução de código", id);
     }
   }
 }
@@ -97,6 +100,26 @@ for (const [id, aceitos] of Object.entries(CASOS)) {
   console.log(`${id}: ${casos[id]}`);
   if (!aceitos.includes(casos[id])) violou(`caso real fora do esperado (${aceitos.join(" ou ")})`, id);
 }
+// A busca precisa achar o que qualquer pessoa procuraria.
+const BUSCAS = {
+  log4j: "2021-44228",
+  log4shell: "2021-44228",
+  heartbleed: "2014-0160",
+  shellshock: "2014-6271",
+  "dirty cow": "2016-5195",
+  "JNDI features used in configuration, log messages, and parameters do not protect against attacker controlled LDAP": "2021-44228",
+};
+const lerBalde = async (nome) => {
+  try { return JSON.parse(readFileSync(join(PASTA, "..", "b", `${nome}.json`), "utf8")); } catch { return {}; }
+};
+for (const [texto, esperado] of Object.entries(BUSCAS)) {
+  const r = await buscarEm(texto, lerBalde);
+  const lugar = r.ids.indexOf(esperado);
+  console.log(`Busca "${texto.slice(0, 40)}": ${r.total} resultados, CVE-${esperado} na posição ${lugar + 1}`);
+  if (lugar < 0 || lugar >= 30) violou("busca não achou caso conhecido", texto.slice(0, 40));
+}
+if ((await buscarEm("xyzzyqqvw", lerBalde)).ids.length) violou("busca inventou resultado", "xyzzyqqvw");
+
 if (alerta / tudo > MAX_ALERTA) violou("alerta demais", `${pct(alerta, tudo)}`);
 if (kev.alerta / kev.total < MIN_KEV_SEM_SINAL) violou("KEV escapando sem a confirmação", pct(kev.alerta, kev.total));
 

@@ -128,6 +128,7 @@ export function Detalhe({ item, exposta, voltar, rotuloVoltar }: { item: Item; e
       <div className={`veredito ${v.nivel}`}>
         <Icone size={56} aria-hidden />
         <p className="veredito-id">{s.id}{s.produto ? `, ${s.produto}` : ""}</p>
+        {!s.produto && (s.titulo ?? s.resumo) && <p className="veredito-id">{s.titulo ?? s.resumo}</p>}
         <h1>{TITULOS[v.nivel]}</h1>
         <p>{piada(v.nivel, s.id, s.cvss?.nota)}</p>
       </div>
@@ -208,11 +209,11 @@ export function Detalhe({ item, exposta, voltar, rotuloVoltar }: { item: Item; e
   );
 }
 
-export function Lista({ itens, origem, cortados, privados, semVersao, exposta, abrir, voltar }: {
-  itens: Item[]; origem: string; cortados: number; privados: number; semVersao: number; exposta: Exposta; abrir: (i: Item) => void; voltar: () => void;
+export function Lista({ itens, origem, cortados, privados, semVersao, busca, exposta, abrir, voltar }: {
+  itens: Item[]; origem: string; cortados: number; privados: number; semVersao: number; busca?: { texto: string; total: number; ignoradas: string[]; parcial: boolean }; exposta: Exposta; abrir: (i: Item) => void; voltar: () => void;
 }) {
   const julgados = itens.map((item) => ({ item, v: vereditoDe(item, exposta.valor) }));
-  julgados.sort((a, b) => ORDEM[a.v.nivel] - ORDEM[b.v.nivel] || (b.item.sinais.epss ?? 0) - (a.item.sinais.epss ?? 0));
+  if (!busca) julgados.sort((a, b) => ORDEM[a.v.nivel] - ORDEM[b.v.nivel] || (b.item.sinais.epss ?? 0) - (a.item.sinais.epss ?? 0));
   const contagem = (n: Nivel) => julgados.filter((j) => j.v.nivel === n).length;
   const pior = julgados[0]?.v.nivel;
   const niveis: Nivel[] = ["acorda", "cedo", "incerto", "olho", "dorme", "inexistente"];
@@ -220,7 +221,15 @@ export function Lista({ itens, origem, cortados, privados, semVersao, exposta, a
   return (
     <section className="resultado">
       <button className="voltar" onClick={voltar}><ArrowLeft size={18} aria-hidden /> Consultar outro</button>
-      {!itens.length ? (
+      {busca ? (
+        <div className="cabeca-busca">
+          <h1>{itens.length ? "Achei isto" : "Não achei nada"}</h1>
+          <p className="busca-texto">{busca.texto.length > 120 ? `${busca.texto.slice(0, 120)}…` : busca.texto}</p>
+          {itens.length > 0 && <p className="dica">{busca.total > itens.length ? `Os ${itens.length} mais relevantes de ${busca.total}.` : busca.parcial ? "Os mais relevantes entre os mais importantes, e pode haver mais." : "Os mais relevantes primeiro."} Cada veredito vale para quem usa aquele produto.</p>}
+          {busca.ignoradas.length > 0 && itens.length > 0 && <p className="dica">Não aparecem em nenhum CVE: {busca.ignoradas.join(", ")}.</p>}
+          {!itens.length && <p>Isso não quer dizer que não exista falha nesse produto, só que não achei com essas palavras. As descrições oficiais são em inglês: vale tentar o nome do fabricante ou menos palavras.</p>}
+        </div>
+      ) : !itens.length ? (
         <div className="veredito dorme">
           <BedDouble size={56} aria-hidden />
           <h1>Dorme em paz.</h1>
@@ -233,7 +242,7 @@ export function Lista({ itens, origem, cortados, privados, semVersao, exposta, a
           <p>{pior === "acorda" ? contagem("acorda") === itens.length ? `Todos os ${itens.length} pedem atenção agora. Boa sorte.` : `${contagem("acorda")} de ${itens.length} ${contagem("acorda") === 1 ? "pede" : "pedem"} atenção agora. O resto pode esperar.` : `Nada pede madrugada entre os ${itens.length} itens.`}</p>
         </div>
       )}
-      <p className="dica origem">{origem}.{cortados > 0 ? ` Ficaram de fora ${cortados} CVEs: o limite é 200 por vez.` : ""}{privados > 0 ? ` Pacotes privados não consultados: ${privados}.` : ""}{semVersao > 0 ? ` Sem versão fixa, não consultados: ${semVersao}.` : ""}</p>
+      {!busca && <p className="dica origem">{origem}.{cortados > 0 ? ` Ficaram de fora ${cortados} CVEs: o limite é 200 por vez.` : ""}{privados > 0 ? ` Pacotes privados não consultados: ${privados}.` : ""}{semVersao > 0 ? ` Sem versão fixa, não consultados: ${semVersao}.` : ""}</p>}
 
       {itens.length > 0 && (
         <>
@@ -250,7 +259,8 @@ export function Lista({ itens, origem, cortados, privados, semVersao, exposta, a
                     <span className="linha-icone"><I size={22} aria-hidden /></span>
                     <span className="linha-corpo">
                       <span className="linha-id">{item.sinais.id}</span>
-                      <span className="linha-nome">{item.pacote ? `${item.pacote.nome} ${item.pacote.versao}` : item.sinais.produto ?? item.sinais.titulo ?? ""}</span>
+                      <span className="linha-nome">{item.pacote ? `${item.pacote.nome} ${item.pacote.versao}` : item.sinais.produto ?? item.sinais.titulo ?? item.sinais.resumo ?? ""}</span>
+                      {busca && item.sinais.produto && (item.sinais.titulo ?? item.sinais.resumo) && <span className="linha-titulo">{item.sinais.titulo ?? item.sinais.resumo}</span>}
                     </span>
                     <span className="linha-dados">
                       {item.sinais.kev && <span className="chip ruim">KEV</span>}

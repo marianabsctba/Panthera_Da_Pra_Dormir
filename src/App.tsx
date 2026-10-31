@@ -3,7 +3,7 @@ import { ArrowUpRight, BedDouble, FileUp, Flame, Github, Loader2, Moon, Skull, S
 import ComoDecide from "./ComoDecide";
 import { Confirmar, Detalhe, Lista, type Exposta } from "./Resultado";
 import { LIMITE_CVES, extrairCves, lerPacotes } from "./entrada";
-import { consultarCve, consultarPacotes, emParalelo, hoje as lerHoje } from "./fontes";
+import { buscar, consultarCve, consultarPacotes, emParalelo, hoje as lerHoje } from "./fontes";
 import { porcentagem } from "./veredito";
 import type { Exposicao, Hoje, Item, LeituraPacotes } from "./tipos";
 
@@ -11,11 +11,12 @@ type Tela =
   | { nome: "inicio"; erro?: string }
   | { nome: "carregando"; etapa: string }
   | { nome: "confirmar"; leitura: LeituraPacotes }
-  | { nome: "lista"; itens: Item[]; origem: string; cortados: number; privados: number; semVersao: number }
+  | { nome: "lista"; itens: Item[]; origem: string; cortados: number; privados: number; semVersao: number; busca?: { texto: string; total: number; ignoradas: string[]; parcial: boolean } }
   | { nome: "detalhe"; item: Item };
 
 const DIAS_VELHO = 3;
 const CVE_NO_HASH = /^#(CVE-\d{4}-\d{4,})$/i;
+const BUSCA_NO_HASH = /^#busca=(.+)$/;
 
 function preferencia(chave: string): string | null {
   try { return localStorage.getItem(chave); } catch { return null; }
@@ -60,17 +61,33 @@ export default function App() {
     window.scrollTo(0, 0);
   }, []);
 
-  // Link compartilhado: o CVE vem no endereço.
+  const pesquisar = useCallback(async (texto: string) => {
+    setComo(false);
+    setVoltarLista(null);
+    setTela({ nome: "carregando", etapa: "Procurando" });
+    try {
+      const r = await buscar(texto);
+      setTela({ nome: "lista", itens: r.itens, origem: "", cortados: 0, privados: 0, semVersao: 0, busca: { texto, total: r.total, ignoradas: r.ignoradas, parcial: r.parcial } });
+      window.scrollTo(0, 0);
+    } catch (e) {
+      console.error(e);
+      setTela({ nome: "inicio", erro: "Não consegui fazer a busca agora. Tente de novo em alguns minutos." });
+    }
+  }, []);
+
+  // Link compartilhado: o CVE ou a busca vêm no endereço.
   useEffect(() => {
     const seguir = () => {
       setComo(location.hash === "#como");
       const m = CVE_NO_HASH.exec(location.hash);
-      if (m) void umCve(m[1].toUpperCase(), null);
+      if (m) { void umCve(m[1].toUpperCase(), null); return; }
+      const b = BUSCA_NO_HASH.exec(location.hash);
+      if (b) void pesquisar(decodeURIComponent(b[1]));
     };
     seguir();
     window.addEventListener("hashchange", seguir);
     return () => window.removeEventListener("hashchange", seguir);
-  }, [umCve]);
+  }, [umCve, pesquisar]);
 
   const inicio = () => {
     history.replaceState(null, "", location.pathname + location.search);
@@ -93,7 +110,9 @@ export default function App() {
     }
     const cves = extrairCves(bruto);
     if (!cves.length) {
-      setTela({ nome: "inicio", erro: "Não achei nenhum CVE aí. Por enquanto leio texto com CVE-AAAA-NNNN, package-lock.json, requirements.txt e go.mod." });
+      const hash = `#busca=${encodeURIComponent(bruto.trim().slice(0, 500))}`;
+      if (location.hash === hash) void pesquisar(bruto.trim().slice(0, 500));
+      else location.hash = hash;
       return;
     }
     if (cves.length === 1) { location.hash = cves[0]; return; }
@@ -102,7 +121,7 @@ export default function App() {
     const sinais = await emParalelo(usados, consultarCve, (f) => setTela({ nome: "carregando", etapa: `Consultando ${f} de ${usados.length} CVEs` }));
     setTela({ nome: "lista", itens: sinais.map((s) => ({ sinais: s })), origem: `${usados.length} CVEs colados`, cortados: cves.length - usados.length, privados: 0, semVersao: 0 });
     window.scrollTo(0, 0);
-  }, []);
+  }, [pesquisar]);
 
   const consultar = useCallback(async (l: LeituraPacotes) => {
     setTela({ nome: "carregando", etapa: "Consultando" });
@@ -167,9 +186,9 @@ export default function App() {
             <p className="grande">Saiu uma falha com manchete apocalíptica e o grupo da empresa já está em chamas? Cola aqui. A gente separa o incêndio do barulho.</p>
             {tela.erro && <p className="aviso-erro" role="alert">{tela.erro}</p>}
             <form onSubmit={(e) => { e.preventDefault(); void analisar(texto); }}>
-              <label className="sr" htmlFor="entrada">CVE, boletim ou lista de dependências</label>
+              <label className="sr" htmlFor="entrada">CVE, produto, palavra, trecho, boletim ou lista de dependências</label>
               <textarea id="entrada" rows={4} value={texto} onChange={(e) => setTexto(e.target.value)} spellCheck={false}
-                placeholder="CVE-2021-44228, um boletim inteiro, ou o conteúdo de um package-lock.json" />
+                placeholder="CVE-2021-44228, fortinet rce, heartbleed, um trecho de boletim ou um package-lock.json" />
               <button className="botao-gigante" type="submit" disabled={!texto.trim()}>
                 <BedDouble size={30} aria-hidden /> Posso dormir?
               </button>

@@ -61,7 +61,7 @@ export default function ComoDecide({ voltar }: { voltar: () => void }) {
       <p>Isto é um ponto de partida para priorizar, não um parecer sobre o seu ambiente. Se o veredito contrariar o que você sabe da sua casa, confie no que você sabe.</p>
 
       <h2>O que sai do seu aparelho</h2>
-      <p>O veredito de um CVE é calculado aqui, com os dados do dia, e o número não sai do seu aparelho. Ele só vai para o registro público de CVEs se for mais novo que os dados do dia, se ainda estiver sem nota, ou se você abrir a descrição oficial. Ao consultar dependências, nomes e versões vão para o OSV, depois de você confirmar. Nada fica guardado aqui.</p>
+      <p>A busca por palavra e o veredito de um CVE são calculados aqui, com os dados do dia, sem falar com terceiros. O número de um CVE só vai para o registro público de CVEs se for mais novo que os dados do dia, se ainda estiver sem nota, ou se você abrir a descrição oficial. Ao consultar dependências, nomes e versões vão para o OSV, depois de você confirmar. Nada fica guardado aqui.</p>
     </section>
   );
 }

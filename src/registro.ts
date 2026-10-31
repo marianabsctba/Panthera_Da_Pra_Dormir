@@ -18,12 +18,18 @@ interface Conteiner {
   problemTypes?: { descriptions?: { cweId?: string }[] }[];
 }
 
-const RCE_TEXTO = /remote code execution|\bRCE\b|arbitrary (code|commands?) (execution|to be executed)|execut\w* arbitrary (code|commands?)|command injection|code injection|remote command execution/i;
+const RCE_FORTE = /remote code execution|\bRCE\b|remote command execution|command injection/i;
+const RCE_FRACO = /arbitrary (code|commands?) (execution|to be executed)|execut\w* arbitrary (code|commands?)|code injection/i;
 const RCE_CWE = new Set(["CWE-77", "CWE-78", "CWE-94", "CWE-95", "CWE-96", "CWE-502", "CWE-917", "CWE-1336"]);
+// Vários registros marcam XSS com CWE-94 ou dizem "arbitrary code" sobre o navegador.
+const OUTRA_FALHA = /cross.?site.?scripting|\bXSS\b|(html|css|content|csv|formula|log|email|header|sql|hql|ldap) injection/i;
 const MAX_EXPLOITS_REGISTRO = 3;
 
 export function ehRce(texto: string | undefined, cwes: (string | undefined)[]): boolean {
-  return RCE_TEXTO.test(texto ?? "") || cwes.some((c) => c !== undefined && RCE_CWE.has(c));
+  const t = texto ?? "";
+  if (RCE_FORTE.test(t)) return true;
+  if (OUTRA_FALHA.test(t)) return false;
+  return RCE_FRACO.test(t) || cwes.some((c) => c !== undefined && RCE_CWE.has(c));
 }
 
 export interface ParteCve {
@@ -38,6 +44,7 @@ export interface ParteCve {
   referencias?: string[];
   rce?: boolean;
   exploits?: Exploit[];
+  resumo?: string;
 }
 
 export function lerRegistroCve(j: {
@@ -100,6 +107,7 @@ export interface Registro {
   x?: "active" | "poc";
   a?: 1;
   r?: 1;
+  u?: string;
   // Exploits: fonte abreviada e caminho, para não repetir o endereço inteiro.
   l?: [string, string][];
 }
@@ -117,6 +125,13 @@ export function expandirExploits(l: [string, string][] | undefined): Exploit[] {
 }
 
 const LIMITE_TEXTO = 200;
+const LIMITE_RESUMO = 110;
+
+export function resumir(texto: string): string {
+  const limpo = texto.replace(/\s+/g, " ").trim();
+  if (limpo.length <= LIMITE_RESUMO) return limpo;
+  return `${limpo.slice(0, LIMITE_RESUMO).replace(/\s+\S*$/, "")}…`;
+}
 
 export function compactar(p: ParteCve): Registro {
   if (p.estado === "rejeitado") return { s: 0 };
@@ -128,6 +143,8 @@ export function compactar(p: ParteCve): Registro {
   if (p.exploracao === "active" || p.exploracao === "poc") r.x = p.exploracao;
   if (p.automatizavel) r.a = 1;
   if (p.rce) r.r = 1;
+  // Registro sem título nem produto ainda precisa de uma legenda nas listas.
+  if ((!p.titulo || !p.produto) && p.descricao) r.u = resumir(p.descricao);
   if (p.exploits?.length) r.l = p.exploits.map((e) => ["r", e.url]);
   return r;
 }
@@ -135,7 +152,7 @@ export function compactar(p: ParteCve): Registro {
 export function parteLocal(r: Registro): ParteCve {
   if (r.s === 0) return { estado: "rejeitado" };
   return {
-    estado: "publicado", titulo: r.t, produto: r.o, publicado: r.d,
+    estado: "publicado", titulo: r.t, produto: r.o, publicado: r.d, resumo: r.u,
     cvss: r.c !== undefined ? { nota: r.c, vetor: r.v } : undefined,
     exploracao: r.x, automatizavel: r.a === 1, rce: r.r === 1,
     exploits: expandirExploits(r.l),

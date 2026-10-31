@@ -11,6 +11,7 @@ import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 import yauzl from "yauzl";
+import { baldeDe, palavras, TETO_PALAVRA } from "../src/busca.ts";
 import { compactar, lerRegistroCve } from "../src/registro.ts";
 
 const RAIZ = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -209,9 +210,21 @@ for (const v of kev.vulnerabilities) {
   }
 }
 
+// Índice de palavras: cada palavra aponta para os CVEs em que aparece.
+const indice = new Map();
+const cvesDoIndice = [];
 const base = await lerBaseCve((cve, parte) => {
   const r = registro(cve);
-  if (r) Object.assign(r, compactar(parte));
+  if (!r) return;
+  Object.assign(r, compactar(parte));
+  if (parte.estado !== "publicado") return;
+  const n = cvesDoIndice.push(cve) - 1;
+  const texto = `${parte.titulo ?? ""} ${parte.produto ?? ""} ${parte.descricao ?? ""} ${r.k?.nome ?? ""}${parte.rce ? " rce" : ""}`;
+  for (const p of palavras(texto)) {
+    const lista = indice.get(p);
+    if (lista) lista.push(n);
+    else indice.set(p, [n]);
+  }
 });
 if (base.total < MIN_CVE) throw new Error("base de CVEs veio pequena demais");
 
@@ -234,6 +247,21 @@ for (const [chave, conteudo] of caixas) {
   await mkdir(dirname(arquivo), { recursive: true });
   await writeFile(arquivo, JSON.stringify(conteudo));
 }
+
+// Falha já explorada vem antes, depois quem tem mais chance de ser explorada.
+const importancia = cvesDoIndice.map((cve) => {
+  const r = registro(cve);
+  return (r.k ? 2 : 0) + (r.e ?? 0);
+});
+const baldes = new Map();
+for (const [p, lista] of indice) {
+  lista.sort((a, b) => importancia[b] - importancia[a]);
+  const nome = baldeDe(p);
+  if (!baldes.has(nome)) baldes.set(nome, {});
+  baldes.get(nome)[p] = [lista.length, ...lista.slice(0, TETO_PALAVRA).map((n) => cvesDoIndice[n].slice(4))];
+}
+await mkdir(join(SAIDA, "b"), { recursive: true });
+for (const [nome, conteudo] of baldes) await writeFile(join(SAIDA, "b", `${nome}.json`), JSON.stringify(conteudo));
 
 const naKev = new Set(kev.vulnerabilities.map((v) => v.cveID));
 const recentes = [...kev.vulnerabilities]
@@ -258,4 +286,4 @@ await writeFile(join(SAIDA, "hoje.json"), JSON.stringify({
   dataEpss: epss.data, versaoKev: kev.catalogVersion, versaoCve: base.versao, totalCve: base.total, totalKev: kev.vulnerabilities.length, totalEpss: epss.notas.size, recentes, subindo: topo,
 }));
 
-console.log(`CVE ${base.total}, KEV ${kev.vulnerabilities.length}, EPSS ${epss.notas.size} (${epss.data}), ${caixas.size} arquivos`);
+console.log(`CVE ${base.total}, KEV ${kev.vulnerabilities.length}, EPSS ${epss.notas.size} (${epss.data}), ${caixas.size} arquivos, ${indice.size} palavras`);

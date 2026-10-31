@@ -1,4 +1,5 @@
-import { ehRce, expandirExploits, lerRegistroCve, parteLocal, type ParteCve, type Registro } from "./registro";
+import { buscarEm, type Balde } from "./busca";
+import { ehRce, expandirExploits, lerRegistroCve, parteLocal, resumir, type ParteCve, type Registro } from "./registro";
 import type { Hoje, Item, Pacote, Sinais } from "./tipos";
 
 const BASE = import.meta.env.BASE_URL;
@@ -69,12 +70,37 @@ export function consultarCve(id: string): Promise<Sinais> {
         exploits: l.s !== undefined ? c.exploits : [...expandirExploits(l.l), ...(c.exploits ?? [])],
         titulo: c.titulo ?? l.k?.nome,
         descricao: c.descricao ?? l.k?.descricao,
+        resumo: c.resumo ?? (c.descricao ? resumir(c.descricao) : undefined),
         produto: c.produto ?? (l.k ? `${l.k.fornecedor} ${l.k.produto}` : undefined),
       };
     });
     sinaisCache.set(id, p);
   }
   return p;
+}
+
+const baldes = new Map<string, Promise<Balde>>();
+
+function lerBalde(nome: string): Promise<Balde> {
+  let p = baldes.get(nome);
+  if (!p) {
+    p = fetch(`${BASE}dados/b/${nome}.json`).then((r) => {
+      if (!r.ok) throw new Error(`índice respondeu ${r.status}`);
+      return r.json();
+    });
+    baldes.set(nome, p);
+  }
+  return p;
+}
+
+const MOSTRAR_BUSCA = 30;
+
+export async function buscar(texto: string): Promise<{ itens: Item[]; total: number; ignoradas: string[]; parcial: boolean }> {
+  const r = await buscarEm(texto, lerBalde);
+  const sinais = await emParalelo(r.ids.slice(0, r.querRce ? r.ids.length : MOSTRAR_BUSCA).map((id) => `CVE-${id}`), consultarCve);
+  // "rce" é comum demais para o índice: quem confere é o registro de cada CVE.
+  const achados = r.querRce ? sinais.filter((s) => s.rce) : sinais;
+  return { itens: achados.slice(0, MOSTRAR_BUSCA).map((s) => ({ sinais: s })), total: r.querRce ? achados.length : r.total, ignoradas: r.ignoradas, parcial: r.querRce && r.total > r.ids.length };
 }
 
 export async function emParalelo<E, S>(lista: E[], f: (e: E) => Promise<S>, progresso?: (feitos: number) => void): Promise<S[]> {
