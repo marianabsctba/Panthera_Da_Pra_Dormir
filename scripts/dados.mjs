@@ -1,5 +1,5 @@
-// Monta os dados estáticos do site a partir das fontes públicas (KEV, EPSS e a
-// base inteira de CVEs).
+// Monta os dados estáticos do site a partir das fontes públicas (KEV, EPSS, a
+// base inteira de CVEs e os índices de exploit).
 // Roda todo dia no GitHub Actions. Se um feed vier estranho, falha sem publicar
 // e o site continua com os dados do dia anterior.
 import { createWriteStream } from "node:fs";
@@ -20,6 +20,9 @@ const EPSS_HOJE = "https://epss.empiricalsecurity.com/epss_scores-current.csv.gz
 const EPSS_DIA = (d) => `https://epss.empiricalsecurity.com/epss_scores-${d}.csv.gz`;
 const BASE_CVE = "https://api.github.com/repos/CVEProject/cvelistV5/releases/latest";
 const TEMPO_BASE = 900000;
+const EXPLOIT_DB = "https://gitlab.com/exploit-database/exploitdb/-/raw/main/files_exploits.csv";
+const METASPLOIT = "https://raw.githubusercontent.com/rapid7/metasploit-framework/master/db/modules_metadata_base.json";
+const NUCLEI = "https://raw.githubusercontent.com/projectdiscovery/nuclei-templates/main/cves.json";
 
 // Abaixo disso o feed veio cortado ou mudou de formato.
 const MIN_KEV = 1000;
@@ -27,6 +30,10 @@ const MIN_EPSS = 200000;
 const MIN_CVE = 300000;
 const MAX_CVE_COM_ERRO = 100;
 const TENTATIVAS = 4;
+const MIN_EXPLOIT_DB = 3000;
+const MIN_METASPLOIT = 1500;
+const MIN_NUCLEI = 2000;
+const MAX_LINKS_POR_FONTE = 3;
 // Só conta como "subiu de repente" quem chegou a uma chance relevante.
 const EPSS_MIN_SUBINDO = 0.1;
 
@@ -124,6 +131,49 @@ async function lerBaseCve(porCve) {
   }
 }
 
+function linhasCsv(texto) {
+  const linhas = [];
+  let campo = "";
+  let linha = [];
+  let aspas = false;
+  for (let i = 0; i < texto.length; i++) {
+    const c = texto[i];
+    if (aspas) {
+      if (c === '"' && texto[i + 1] === '"') { campo += '"'; i++; }
+      else if (c === '"') aspas = false;
+      else campo += c;
+    } else if (c === '"') aspas = true;
+    else if (c === ",") { linha.push(campo); campo = ""; }
+    else if (c === "\n") { linha.push(campo); linhas.push(linha); linha = []; campo = ""; }
+    else if (c !== "\r") campo += c;
+  }
+  return linhas;
+}
+
+// Cada índice devolve pares [CVE, fonte abreviada, caminho do link].
+async function lerExploitDb() {
+  const [cabecalho, ...linhas] = linhasCsv(await (await baixar(EXPLOIT_DB)).text());
+  const id = cabecalho.indexOf("id");
+  const codes = cabecalho.indexOf("codes");
+  if (id < 0 || codes < 0) throw new Error("Exploit-DB em formato inesperado");
+  return linhas.flatMap((l) => (l[codes] ?? "").split(";").filter((c) => /^CVE-\d{4}-\d+$/.test(c)).map((c) => [c, "e", l[id]]));
+}
+
+async function lerMetasploit() {
+  const modulos = Object.values(await (await baixar(METASPLOIT)).json());
+  return modulos.filter((m) => m.type === "exploit" || m.type === "auxiliary").flatMap((m) =>
+    (m.references ?? []).map((r) => /^CVE-(\d{4}-\d+)$/.exec(r)).filter(Boolean)
+      .map((c) => [`CVE-${c[1]}`, m.type === "exploit" ? "m" : "a", m.path.replace(/^\//, "")]));
+}
+
+async function lerNuclei() {
+  const texto = await (await baixar(NUCLEI)).text();
+  return texto.split("\n").filter(Boolean).flatMap((l) => {
+    const j = JSON.parse(l);
+    return /^CVE-\d{4}-\d+$/.test(j.ID) && j.file_path ? [[j.ID, "n", j.file_path]] : [];
+  });
+}
+
 const kev = await (await baixar(KEV)).json();
 if (!Array.isArray(kev.vulnerabilities) || kev.vulnerabilities.length < MIN_KEV) throw new Error("KEV veio pequeno demais");
 
@@ -164,6 +214,19 @@ const base = await lerBaseCve((cve, parte) => {
   if (r) Object.assign(r, compactar(parte));
 });
 if (base.total < MIN_CVE) throw new Error("base de CVEs veio pequena demais");
+
+// Fonte fora do ar não pode virar "não tem exploit": sem ela, nada é publicado.
+for (const [nome, ler, minimo] of [["Exploit-DB", lerExploitDb, MIN_EXPLOIT_DB], ["Metasploit", lerMetasploit, MIN_METASPLOIT], ["Nuclei", lerNuclei, MIN_NUCLEI]]) {
+  const pares = await ler();
+  if (pares.length < minimo) throw new Error(`${nome} veio pequeno demais: ${pares.length}`);
+  for (const [cve, fonte, caminho] of pares) {
+    const r = registro(cve);
+    if (!r) continue;
+    r.l ??= [];
+    if (r.l.filter(([f]) => f === fonte).length < MAX_LINKS_POR_FONTE) r.l.unshift([fonte, caminho]);
+  }
+  console.log(`${nome}: ${pares.length} ligações com CVE`);
+}
 
 await rm(SAIDA, { recursive: true, force: true });
 for (const [chave, conteudo] of caixas) {

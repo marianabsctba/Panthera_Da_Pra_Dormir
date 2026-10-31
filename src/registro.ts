@@ -1,5 +1,5 @@
 // Leitura do registro de CVE, usada pelo navegador e pelo pipeline diário.
-import type { Cvss, Estado, Kev, Sinais } from "./tipos";
+import type { Cvss, Estado, Exploit, Kev, Sinais } from "./tipos";
 
 interface Metrica {
   cvssV4_0?: { baseScore: number; vectorString: string };
@@ -14,7 +14,16 @@ interface Conteiner {
   descriptions?: { lang?: string; value: string }[];
   affected?: { vendor?: string; product?: string }[];
   metrics?: Metrica[];
-  references?: { url: string }[];
+  references?: { url: string; tags?: string[] }[];
+  problemTypes?: { descriptions?: { cweId?: string }[] }[];
+}
+
+const RCE_TEXTO = /remote code execution|\bRCE\b|arbitrary (code|commands?) (execution|to be executed)|execut\w* arbitrary (code|commands?)|command injection|code injection|remote command execution/i;
+const RCE_CWE = new Set(["CWE-77", "CWE-78", "CWE-94", "CWE-95", "CWE-96", "CWE-502", "CWE-917", "CWE-1336"]);
+const MAX_EXPLOITS_REGISTRO = 3;
+
+export function ehRce(texto: string | undefined, cwes: (string | undefined)[]): boolean {
+  return RCE_TEXTO.test(texto ?? "") || cwes.some((c) => c !== undefined && RCE_CWE.has(c));
 }
 
 export interface ParteCve {
@@ -27,6 +36,8 @@ export interface ParteCve {
   exploracao?: Sinais["exploracao"];
   automatizavel?: boolean;
   referencias?: string[];
+  rce?: boolean;
+  exploits?: Exploit[];
 }
 
 export function lerRegistroCve(j: {
@@ -56,14 +67,21 @@ export function lerRegistroCve(j: {
 
   const afetado = cna.affected?.find((a) => a.product && a.product !== "n/a");
   const descricoes = cna.descriptions ?? [];
+  const descricao = (descricoes.find((d) => d.lang?.startsWith("en")) ?? descricoes[0])?.value;
+  const cwes = todos.flatMap((c) => c.problemTypes ?? []).flatMap((p) => p.descriptions ?? []).map((d) => d.cweId);
+  const linksExploit = new Set(todos.flatMap((c) => c.references ?? [])
+    .filter((r) => /^https?:\/\//.test(r.url) && r.tags?.some((t) => /exploit/i.test(t)))
+    .map((r) => r.url));
   const url = cna.references?.map((r) => r.url).filter((u) => /^https?:\/\//.test(u)).slice(0, 4);
   return {
     estado: "publicado",
     titulo: cna.title,
-    descricao: (descricoes.find((d) => d.lang?.startsWith("en")) ?? descricoes[0])?.value,
+    descricao,
     produto: afetado ? [afetado.vendor, afetado.product].filter((x) => x && x !== "n/a").join(" ") : undefined,
     publicado: j.cveMetadata?.datePublished,
     cvss, exploracao, automatizavel, referencias: url,
+    rce: ehRce(`${cna.title ?? ""} ${descricao ?? ""}`, cwes),
+    exploits: [...linksExploit].slice(0, MAX_EXPLOITS_REGISTRO).map((u) => ({ fonte: "registro" as const, url: u })),
   };
 }
 
@@ -81,6 +99,21 @@ export interface Registro {
   v?: string;
   x?: "active" | "poc";
   a?: 1;
+  r?: 1;
+  // Exploits: fonte abreviada e caminho, para não repetir o endereço inteiro.
+  l?: [string, string][];
+}
+
+const FONTES: Record<string, { fonte: Exploit["fonte"]; base: string }> = {
+  m: { fonte: "metasploit", base: "https://github.com/rapid7/metasploit-framework/blob/master/" },
+  a: { fonte: "metasploit_aux", base: "https://github.com/rapid7/metasploit-framework/blob/master/" },
+  n: { fonte: "nuclei", base: "https://github.com/projectdiscovery/nuclei-templates/blob/main/" },
+  e: { fonte: "exploitdb", base: "https://www.exploit-db.com/exploits/" },
+  r: { fonte: "registro", base: "" },
+};
+
+export function expandirExploits(l: [string, string][] | undefined): Exploit[] {
+  return (l ?? []).flatMap(([f, c]) => (FONTES[f] ? [{ fonte: FONTES[f].fonte, url: FONTES[f].base + c }] : []));
 }
 
 const LIMITE_TEXTO = 200;
@@ -94,6 +127,8 @@ export function compactar(p: ParteCve): Registro {
   if (p.cvss) { r.c = p.cvss.nota; r.v = p.cvss.vetor; }
   if (p.exploracao === "active" || p.exploracao === "poc") r.x = p.exploracao;
   if (p.automatizavel) r.a = 1;
+  if (p.rce) r.r = 1;
+  if (p.exploits?.length) r.l = p.exploits.map((e) => ["r", e.url]);
   return r;
 }
 
@@ -102,6 +137,7 @@ export function parteLocal(r: Registro): ParteCve {
   return {
     estado: "publicado", titulo: r.t, produto: r.o, publicado: r.d,
     cvss: r.c !== undefined ? { nota: r.c, vetor: r.v } : undefined,
-    exploracao: r.x, automatizavel: r.a === 1,
+    exploracao: r.x, automatizavel: r.a === 1, rce: r.r === 1,
+    exploits: expandirExploits(r.l),
   };
 }

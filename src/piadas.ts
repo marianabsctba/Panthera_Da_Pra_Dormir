@@ -32,10 +32,10 @@ const PIADAS: Record<Nivel, string[]> = {
     "Amanhã cedo. E \"cedo\" não significa depois da daily.",
   ],
   olho: [
-    "A manchete grita, os dados não. Entra na janela normal de correção.",
     "Fornecedor vai te ligar dizendo que é urgente. Ele também vende a solução.",
     "Vai para a fila. Só não deixa virar aquele ticket que faz aniversário.",
-    "Nota alta, pressa baixa. Corrige com calma e com teste.",
+    "Sem drama e sem esquecer. Corrige com calma e com teste.",
+    "Não é hoje, mas também não é \"um dia\". Entra na janela normal de correção.",
   ],
   dorme: [
     "Boa noite. Se alguém te acordar por isso, manda este link.",
@@ -44,7 +44,7 @@ const PIADAS: Record<Nivel, string[]> = {
     "Entra no ciclo normal de atualização. O travesseiro te espera.",
   ],
   incerto: [
-    "Faltam dados para um veredito honesto, e chute a gente deixa para o fornecedor.",
+    "Faltam dados para um veredito honesto, e chute a gente deixa para o fornecedor. Se você usa isso, leia o aviso oficial.",
     "Ninguém sabe ainda. Quem disser que sabe está vendendo alguma coisa.",
   ],
   inexistente: [
@@ -53,10 +53,16 @@ const PIADAS: Record<Nivel, string[]> = {
   ],
 };
 
-export function piada(nivel: Nivel, semente: string): string {
+// Só faz sentido falar de manchete quando a nota é alta de verdade.
+const PIADAS_NOTA_ALTA = [
+  "A manchete grita, os dados não. Entra na janela normal de correção.",
+  "Nota alta, pressa baixa. Corrige com calma e com teste.",
+];
+
+export function piada(nivel: Nivel, semente: string, nota?: number): string {
   let h = 0;
   for (const c of semente) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  const lista = PIADAS[nivel];
+  const lista = nivel === "olho" && nota !== undefined && nota >= 7 ? [...PIADAS.olho, ...PIADAS_NOTA_ALTA] : PIADAS[nivel];
   return lista[h % lista.length];
 }
 

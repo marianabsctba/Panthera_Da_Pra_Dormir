@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { AlarmClock, ArrowLeft, BedDouble, Check, CircleAlert, CircleCheck, CircleHelp, Copy, Eye, Ghost, Info, Send, Siren, TriangleAlert, type LucideIcon } from "lucide-react";
+import { AlarmClock, ArrowLeft, BedDouble, Check, CircleAlert, CircleCheck, CircleHelp, Copy, ExternalLink, Eye, Ghost, Info, Send, Siren, TriangleAlert, type LucideIcon } from "lucide-react";
 import { complementoCve } from "./fontes";
 import { ACOES, ROTULOS, TITULOS, piada } from "./piadas";
 import type { ParteCve } from "./registro";
 import { ORDEM, decidir } from "./veredito";
 import { explicarVetor } from "./vetor";
-import type { Exposicao, Item, LeituraPacotes, Motivo, Nivel, Sinais, Veredito } from "./tipos";
+import type { Exploit, Exposicao, Item, LeituraPacotes, Motivo, Nivel, Sinais, Veredito } from "./tipos";
 
 const ICONES: Record<Nivel, LucideIcon> = {
   acorda: Siren, cedo: AlarmClock, olho: Eye, dorme: BedDouble, incerto: CircleHelp, inexistente: Ghost,
@@ -23,10 +23,55 @@ function vereditoDe(item: Item, e: Exposicao): Veredito {
   return decidir(item.sinais, e, item.pacote?.soDev);
 }
 
+const NOMES_FONTE: Record<Exploit["fonte"], string> = {
+  metasploit: "Módulo de ataque no Metasploit",
+  metasploit_aux: "Módulo auxiliar no Metasploit",
+  nuclei: "Modelo de varredura no Nuclei",
+  exploitdb: "Exploit-DB",
+  registro: "Citado no registro do CVE",
+};
+
+function Exploits({ s }: { s: Sinais }) {
+  const lista = s.exploits ?? [];
+  return (
+    <>
+      <h2>Exploit público</h2>
+      {lista.length > 0 ? (
+        <>
+          <div className="aviso-exploit" role="note">
+            <strong>Olhe, não execute.</strong>
+            <ul>
+              <li>Exploit público pode vir com malware de brinde. Não rode na sua máquina nem na da empresa: use só um laboratório isolado.</li>
+              <li>Teste apenas em sistema seu ou com autorização por escrito. Invadir dispositivo alheio é crime (art. 154-A do Código Penal).</li>
+              <li>A gente não testou nenhum desses links. Eles servem para entender o ataque e testar a sua detecção.</li>
+            </ul>
+          </div>
+          <ul className="exploits">
+            {lista.map((e) => (
+              <li key={e.url}>
+                <a href={e.url} target="_blank" rel="noreferrer noopener nofollow">
+                  <span>{NOMES_FONTE[e.fonte]}</span>
+                  <code>{e.url.replace(/^https?:\/\//, "")}</code>
+                  <ExternalLink size={16} aria-hidden />
+                </a>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : s.exploracao === "poc" ? (
+        <p>A CISA registra exploit público, mas não achei o link nas fontes que consulto.</p>
+      ) : (
+        <p>Não achei exploit em Metasploit, Nuclei, Exploit-DB e no registro do CVE. Isso não quer dizer que não exista: boa parte das falhas já exploradas não aparece em nenhuma dessas fontes.</p>
+      )}
+    </>
+  );
+}
+
 function misturar(s: Sinais, extra: ParteCve | null): Sinais {
   if (extra?.estado !== "publicado") return s;
   return {
     ...s,
+    rce: s.rce || extra.rce, exploits: s.exploits?.length ? s.exploits : extra.exploits,
     cvss: s.cvss ?? extra.cvss, exploracao: s.exploracao ?? extra.exploracao, automatizavel: s.automatizavel || extra.automatizavel,
     publicado: s.publicado ?? extra.publicado, titulo: s.titulo ?? extra.titulo, produto: s.produto ?? extra.produto,
     descricao: extra.descricao ?? s.descricao, referencias: extra.referencias ?? s.referencias,
@@ -72,7 +117,7 @@ export function Detalhe({ item, exposta, voltar, rotuloVoltar }: { item: Item; e
   const copiar = async () => {
     const dados = [s.kev ? "no KEV" : null, s.epss !== undefined ? `EPSS ${(s.epss * 100).toFixed(1)}%` : null, s.cvss && !s.cvss.aproximada ? `CVSS ${s.cvss.nota}` : null].filter(Boolean).join(", ");
     const link = s.id.startsWith("CVE-") ? `${location.origin}${location.pathname}#${s.id}` : "";
-    await navigator.clipboard.writeText(`${s.id}: ${TITULOS[v.nivel]} ${piada(v.nivel, s.id)}${dados ? ` (${dados})` : ""} ${link}`.trim());
+    await navigator.clipboard.writeText(`${s.id}: ${TITULOS[v.nivel]} ${piada(v.nivel, s.id, s.cvss?.nota)}${dados ? ` (${dados})` : ""} ${link}`.trim());
     setCopiado(true);
     setTimeout(() => setCopiado(false), 2000);
   };
@@ -84,7 +129,7 @@ export function Detalhe({ item, exposta, voltar, rotuloVoltar }: { item: Item; e
         <Icone size={56} aria-hidden />
         <p className="veredito-id">{s.id}{s.produto ? `, ${s.produto}` : ""}</p>
         <h1>{TITULOS[v.nivel]}</h1>
-        <p>{piada(v.nivel, s.id)}</p>
+        <p>{piada(v.nivel, s.id, s.cvss?.nota)}</p>
       </div>
 
       {pacote && (
@@ -119,6 +164,8 @@ export function Detalhe({ item, exposta, voltar, rotuloVoltar }: { item: Item; e
             : `Órgãos federais dos EUA têm até ${s.kev.prazo.split("-").reverse().join("/")} para corrigir. Esse prazo não vale para você, mas o atacante também não está esperando por ele.`}
         </p>
       )}
+
+      {!fim && <Exploits s={s} />}
 
       {linhas.length > 0 && (
         <>
@@ -207,6 +254,7 @@ export function Lista({ itens, origem, cortados, privados, semVersao, exposta, a
                     </span>
                     <span className="linha-dados">
                       {item.sinais.kev && <span className="chip ruim">KEV</span>}
+                      {item.sinais.rce && <span className="chip">RCE</span>}
                       {item.sinais.malicioso && <span className="chip ruim">Malicioso</span>}
                       {item.pacote?.soDev && <span className="chip">Dev</span>}
                       <span className={`selo-nivel ${v.nivel}`}>{ROTULOS[v.nivel]}</span>

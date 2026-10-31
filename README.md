@@ -13,6 +13,10 @@ O objetivo é ensinar a priorizar. O CVSS mede o estrago possível, o EPSS estim
 
 ## O critério
 
+Três princípios: falta de dado nunca tranquiliza, sinal grave põe um piso e nem todo exploit pesa igual. A cada atualização, `scripts/avaliar.mjs` confere esses princípios contra todos os CVEs e contra casos reais. Se algum quebrar, nada é publicado. Com `npm run avaliar -- --historico`, repete a medida do KEV com o EPSS de antes de cada falha entrar na lista.
+
+Os links de exploit vêm do Metasploit, do Nuclei, do Exploit-DB e das referências do próprio registro do CVE. O site só aponta para eles e não testa nenhum. Não aparecer nessas fontes não quer dizer que não exista.
+
 A regra está em `src/veredito.ts`, com testes em `src/veredito.test.ts`, e é explicada no site. Os limites são uma escolha deste projeto, não um padrão da indústria.
 
 ## Rodar

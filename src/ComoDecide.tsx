@@ -27,12 +27,20 @@ export default function ComoDecide({ voltar }: { voltar: () => void }) {
       <h2>A regra</h2>
       <table className="regra">
         <tbody>
-          <tr className="acorda"><th scope="row">{TITULOS.acorda}</th><td>Está no KEV, ou tem exploração ativa, ou EPSS de 50% para cima.</td></tr>
-          <tr className="cedo"><th scope="row">{TITULOS.cedo}</th><td>EPSS de 5% para cima, ou exploit público fácil de automatizar, ou nota 9 para cima em ataque remoto que não exige admin.</td></tr>
-          <tr className="olho"><th scope="row">{TITULOS.olho}</th><td>Nota 7 para cima, ou EPSS de 1% para cima, ou exploit público.</td></tr>
-          <tr className="dorme"><th scope="row">{TITULOS.dorme}</th><td>Todo o resto.</td></tr>
+          <tr className="acorda"><th scope="row">{TITULOS.acorda}</th><td>Está no KEV, ou tem exploração ativa, ou EPSS de 50% para cima, ou tem módulo de ataque no Metasploit para falha remota que não exige admin.</td></tr>
+          <tr className="cedo"><th scope="row">{TITULOS.cedo}</th><td>EPSS de 5% para cima, ou automação pública (Nuclei, Metasploit), ou nota 9 para cima em ataque remoto que não exige admin, ou execução de código remota sem admin e com nota 7 para cima ou sem nota.</td></tr>
+          <tr className="olho"><th scope="row">{TITULOS.olho}</th><td>Nota 7 para cima, ou EPSS de 1% para cima, ou qualquer exploit público citado, ou execução de código.</td></tr>
+          <tr className="dorme"><th scope="row">{TITULOS.dorme}</th><td>Só quando há nota, ela é baixa, e nada acima apareceu.</td></tr>
         </tbody>
       </table>
+
+      <h2>Três princípios que valem para tudo</h2>
+      <ul className="lista-grande">
+        <li><strong>Falta de dado nunca tranquiliza.</strong> Sem nota não é nota baixa. Não achar exploit não quer dizer que não exista. Fora do KEV não quer dizer seguro.</li>
+        <li><strong>Sinal grave põe um piso.</strong> Execução de código, exploit conhecido e nota crítica nunca dão "dorme", nem depois dos ajustes abaixo.</li>
+        <li><strong>Nem todo exploit pesa igual.</strong> Módulo pronto para usar vale mais que um link citado em algum lugar.</li>
+      </ul>
+      <p>Esses princípios são conferidos contra todos os CVEs a cada atualização. Se algum quebrar, a atualização não é publicada.</p>
 
       <h2>O que baixa um nível</h2>
       <ul className="lista-grande">

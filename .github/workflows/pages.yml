@@ -28,6 +28,7 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run dados
+      - run: npm run avaliar
       - run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:

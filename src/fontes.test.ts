@@ -40,6 +40,29 @@ describe("lerRegistroCve", () => {
   });
 });
 
+describe("sinais de RCE e exploit no registro", () => {
+  it("reconhece execução de código pela descrição e pelo CWE", () => {
+    expect(lerRegistroCve({ containers: { cna: { descriptions: [{ lang: "en", value: "allows remote code execution" }] } } }).rce).toBe(true);
+    expect(lerRegistroCve({ containers: { cna: { problemTypes: [{ descriptions: [{ cweId: "CWE-78" }] }] } } }).rce).toBe(true);
+    expect(lerRegistroCve({ containers: { cna: { descriptions: [{ lang: "en", value: "server-side request forgery" }] } } }).rce).toBe(false);
+  });
+  it("pega só referência marcada como exploit, e só http", () => {
+    const r = lerRegistroCve({ containers: { cna: { references: [
+      { url: "https://a.org/x", tags: ["exploit"] }, { url: "https://b.org/y", tags: ["patch"] }, { url: "javascript:alert(1)", tags: ["exploit"] },
+    ] } } });
+    expect(r.exploits).toEqual([{ fonte: "registro", url: "https://a.org/x" }]);
+  });
+  it("os links sobrevivem ao formato enxuto", () => {
+    const enxuto = compactar({ estado: "publicado", exploits: [{ fonte: "registro", url: "https://a.org/x" }] });
+    enxuto.l!.unshift(["e", "1234"], ["m", "modules/exploits/x.rb"]);
+    expect(parteLocal(enxuto).exploits).toEqual([
+      { fonte: "exploitdb", url: "https://www.exploit-db.com/exploits/1234" },
+      { fonte: "metasploit", url: "https://github.com/rapid7/metasploit-framework/blob/master/modules/exploits/x.rb" },
+      { fonte: "registro", url: "https://a.org/x" },
+    ]);
+  });
+});
+
 describe("sinaisDeOsv", () => {
   it("reconhece pacote malicioso pelo ID e pelo CWE", () => {
     expect(sinaisDeOsv({ id: "MAL-2025-1" }).malicioso).toBe(true);

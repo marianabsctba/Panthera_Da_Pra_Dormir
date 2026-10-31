@@ -21,6 +21,11 @@ export interface Cvss {
   rotulo?: string;
 }
 
+export interface Exploit {
+  fonte: "metasploit" | "metasploit_aux" | "nuclei" | "exploitdb" | "registro";
+  url: string;
+}
+
 export interface Sinais {
   id: string;
   estado: Estado;
@@ -36,6 +41,8 @@ export interface Sinais {
   automatizavel?: boolean;
   referencias?: string[];
   malicioso?: boolean;
+  rce?: boolean;
+  exploits?: Exploit[];
 }
 
 export interface Pacote {

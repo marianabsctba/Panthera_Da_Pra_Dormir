@@ -53,6 +53,36 @@ describe("decidir", () => {
   it("nota baixa e EPSS baixo: dorme", () => {
     expect(nivel({ epss: 0.001, cvss: { nota: 3, vetor: REMOTO } })).toBe("dorme");
   });
+  it("sem nota nunca dá dorme, mesmo com CVE antigo e EPSS baixo", () => {
+    expect(nivel({ epss: 0.001 })).toBe("incerto");
+  });
+  it("execução de código nunca dá dorme, nem com todos os ajustes", () => {
+    const x = { rce: true, epss: 0.001, cvss: { nota: 4.7, vetor: "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:L/I:L/A:L" } };
+    expect(nivel(x)).toBe("olho");
+    expect(nivel(x, "interna", true)).toBe("olho");
+  });
+  it("execução de código remota sem admin e com nota alta põe o alarme", () => {
+    expect(nivel({ rce: true, epss: 0.001, cvss: { nota: 8, vetor: REMOTO } })).toBe("cedo");
+    expect(nivel({ rce: true, epss: 0.001 })).toBe("cedo");
+  });
+  it("módulo pronto no Metasploit acorda em falha remota sem admin", () => {
+    const exploits = [{ fonte: "metasploit" as const, url: "https://x" }];
+    expect(nivel({ exploits, epss: 0.001, cvss: { nota: 6, vetor: REMOTO } })).toBe("acorda");
+    expect(nivel({ exploits, epss: 0.001, cvss: { nota: 6, vetor: LOCAL } })).toBe("cedo");
+  });
+  it("modelo no Nuclei põe o alarme, e link citado só tira do dorme", () => {
+    expect(nivel({ exploits: [{ fonte: "nuclei", url: "https://x" }], epss: 0.001, cvss: { nota: 5, vetor: REMOTO } })).toBe("cedo");
+    expect(nivel({ exploits: [{ fonte: "registro", url: "https://x" }], epss: 0.001, cvss: { nota: 5, vetor: REMOTO } })).toBe("olho");
+  });
+  it("não achar exploit não vira motivo de tranquilidade", () => {
+    const v = decidir(s({ epss: 0.001, cvss: { nota: 3, vetor: REMOTO } }), "nao_sei", false, AGORA);
+    expect(v.motivos.find((m) => m.titulo === "Fora do KEV")?.tipo).toBe("info");
+  });
+  it("CVE-2025-3691: exploit citado e nota média fica na semana, sem texto alarmista", () => {
+    const v = decidir(s({ epss: 0.00605, exploracao: "poc", automatizavel: false, cvss: { nota: 5.1, vetor: "CVSS:4.0/AV:N/AC:L/AT:N/PR:H/UI:N/VC:N/VI:L/VA:N/SC:N/SI:N/SA:N" } }), "nao_sei", false, AGORA);
+    expect(v.nivel).toBe("olho");
+    expect(v.motivos.find((m) => m.titulo.startsWith("EPSS"))?.texto).not.toMatch(/console/);
+  });
   it("sem nota e sem EPSS não inventa veredito", () => {
     expect(nivel({})).toBe("incerto");
     expect(nivel({ estado: "sem_consulta", publicado: undefined })).toBe("incerto");

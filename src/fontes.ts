@@ -1,4 +1,4 @@
-import { lerRegistroCve, parteLocal, type ParteCve, type Registro } from "./registro";
+import { ehRce, expandirExploits, lerRegistroCve, parteLocal, type ParteCve, type Registro } from "./registro";
 import type { Hoje, Item, Pacote, Sinais } from "./tipos";
 
 const BASE = import.meta.env.BASE_URL;
@@ -65,6 +65,8 @@ export function consultarCve(id: string): Promise<Sinais> {
       const c = l.s !== undefined ? parteLocal(l) : await complementoCve(id);
       return {
         id, ...c, kev: l.k, epss: l.e, percentil: l.p,
+        // Metasploit, Nuclei e Exploit-DB estão nos dados do dia, mesmo para CVE novo.
+        exploits: l.s !== undefined ? c.exploits : [...expandirExploits(l.l), ...(c.exploits ?? [])],
         titulo: c.titulo ?? l.k?.nome,
         descricao: c.descricao ?? l.k?.descricao,
         produto: c.produto ?? (l.k ? `${l.k.fornecedor} ${l.k.produto}` : undefined),
@@ -144,6 +146,7 @@ export function sinaisDeOsv(o: Osv): Sinais {
     id: o.id, estado: "publicado", titulo: o.summary, descricao: o.details, publicado: o.published,
     cvss: faixa ? { nota: faixa[0], vetor, aproximada: true, rotulo: faixa[1] } : undefined,
     malicioso: o.id.startsWith("MAL-") || o.database_specific?.cwe_ids?.includes("CWE-506"),
+    rce: ehRce(`${o.summary ?? ""} ${o.details ?? ""}`, o.database_specific?.cwe_ids ?? []),
     referencias: o.references?.map((r) => r.url).slice(0, 4),
   };
 }
@@ -188,7 +191,7 @@ export async function consultarPacotes(pacotes: Pacote[], progresso: (etapa: str
       pacote, corrigeEm,
       sinais: {
         ...c, estado: c.estado === "nao_encontrado" || c.estado === "sem_consulta" ? "publicado" : c.estado,
-        malicioso: base.malicioso, cvss: c.cvss ?? base.cvss,
+        malicioso: base.malicioso, cvss: c.cvss ?? base.cvss, rce: c.rce || base.rce,
         titulo: base.titulo ?? c.titulo, descricao: c.descricao ?? base.descricao,
         publicado: c.publicado ?? base.publicado, referencias: c.referencias ?? base.referencias,
       },
