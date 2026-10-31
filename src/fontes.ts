@@ -1,4 +1,5 @@
-import type { Cvss, Estado, Hoje, Item, Kev, Pacote, Sinais } from "./tipos";
+import { lerRegistroCve, parteLocal, type ParteCve, type Registro } from "./registro";
+import type { Hoje, Item, Pacote, Sinais } from "./tipos";
 
 const BASE = import.meta.env.BASE_URL;
 const CVE_API = "https://cveawg.mitre.org/api/cve/";
@@ -6,12 +7,6 @@ const OSV_API = "https://api.osv.dev/v1";
 const SIMULTANEOS = 8;
 const LOTE_OSV = 500;
 const TEMPO_LIMITE = 20000;
-
-interface Registro {
-  e?: number;
-  p?: number;
-  k?: Kev;
-}
 
 const caixas = new Map<string, Promise<Record<string, Registro>>>();
 
@@ -37,72 +32,6 @@ export function hoje(): Promise<Hoje | null> {
   return fetch(`${BASE}dados/hoje.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
 }
 
-interface Metrica {
-  cvssV4_0?: { baseScore: number; vectorString: string };
-  cvssV3_1?: { baseScore: number; vectorString: string };
-  cvssV3_0?: { baseScore: number; vectorString: string };
-  cvssV2_0?: { baseScore: number; vectorString: string };
-  other?: { type?: string; content?: { options?: Record<string, string>[] } };
-}
-
-interface Conteiner {
-  title?: string;
-  descriptions?: { lang?: string; value: string }[];
-  affected?: { vendor?: string; product?: string }[];
-  metrics?: Metrica[];
-  references?: { url: string }[];
-}
-
-export interface ParteCve {
-  estado: Estado;
-  titulo?: string;
-  descricao?: string;
-  produto?: string;
-  publicado?: string;
-  cvss?: Cvss;
-  exploracao?: Sinais["exploracao"];
-  automatizavel?: boolean;
-  referencias?: string[];
-}
-
-export function lerRegistroCve(j: {
-  cveMetadata?: { state?: string; datePublished?: string };
-  containers?: { cna?: Conteiner; adp?: Conteiner[] };
-}): ParteCve {
-  if (j.cveMetadata?.state === "REJECTED") return { estado: "rejeitado" };
-  const cna = j.containers?.cna ?? {};
-  const todos = [cna, ...(j.containers?.adp ?? [])];
-  const metricas = todos.flatMap((c) => c.metrics ?? []);
-
-  let cvss: Cvss | undefined;
-  for (const versao of ["cvssV4_0", "cvssV3_1", "cvssV3_0", "cvssV2_0"] as const) {
-    const m = metricas.find((x) => x[versao])?.[versao];
-    if (m) { cvss = { nota: m.baseScore, vetor: m.vectorString }; break; }
-  }
-
-  let exploracao: Sinais["exploracao"];
-  let automatizavel: boolean | undefined;
-  for (const m of metricas) {
-    if (m.other?.type !== "ssvc") continue;
-    for (const o of m.other.content?.options ?? []) {
-      if (o.Exploitation) exploracao = o.Exploitation.toLowerCase() as Sinais["exploracao"];
-      if (o.Automatable) automatizavel = o.Automatable.toLowerCase() === "yes";
-    }
-  }
-
-  const afetado = cna.affected?.find((a) => a.product && a.product !== "n/a");
-  const descricoes = cna.descriptions ?? [];
-  const url = cna.references?.map((r) => r.url).filter((u) => /^https?:\/\//.test(u)).slice(0, 4);
-  return {
-    estado: "publicado",
-    titulo: cna.title,
-    descricao: (descricoes.find((d) => d.lang?.startsWith("en")) ?? descricoes[0])?.value,
-    produto: afetado ? [afetado.vendor, afetado.product].filter((x) => x && x !== "n/a").join(" ") : undefined,
-    publicado: j.cveMetadata?.datePublished,
-    cvss, exploracao, automatizavel, referencias: url,
-  };
-}
-
 async function registroCve(id: string): Promise<ParteCve> {
   try {
     const r = await fetch(CVE_API + id, { signal: AbortSignal.timeout(TEMPO_LIMITE) });
@@ -114,17 +43,33 @@ async function registroCve(id: string): Promise<ParteCve> {
   }
 }
 
+const complementos = new Map<string, Promise<ParteCve>>();
+
+// Descrição e referências ficam fora dos arquivos do site: vêm do registro, sob demanda.
+export function complementoCve(id: string): Promise<ParteCve> {
+  let p = complementos.get(id);
+  if (!p) {
+    p = registroCve(id);
+    complementos.set(id, p);
+  }
+  return p;
+}
+
 const sinaisCache = new Map<string, Promise<Sinais>>();
 
 export function consultarCve(id: string): Promise<Sinais> {
   let p = sinaisCache.get(id);
   if (!p) {
-    p = Promise.all([registroLocal(id), registroCve(id)]).then(([l, c]) => ({
-      id, ...c, kev: l.k, epss: l.e, percentil: l.p,
-      titulo: c.titulo ?? l.k?.nome,
-      descricao: c.descricao ?? l.k?.descricao,
-      produto: c.produto ?? (l.k ? `${l.k.fornecedor} ${l.k.produto}` : undefined),
-    }));
+    p = registroLocal(id).then(async (l) => {
+      // Sem registro local, o CVE pode ser mais novo que a base do dia.
+      const c = l.s !== undefined ? parteLocal(l) : await complementoCve(id);
+      return {
+        id, ...c, kev: l.k, epss: l.e, percentil: l.p,
+        titulo: c.titulo ?? l.k?.nome,
+        descricao: c.descricao ?? l.k?.descricao,
+        produto: c.produto ?? (l.k ? `${l.k.fornecedor} ${l.k.produto}` : undefined),
+      };
+    });
     sinaisCache.set(id, p);
   }
   return p;

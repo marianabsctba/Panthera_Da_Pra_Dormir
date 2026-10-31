@@ -73,6 +73,8 @@ export interface Veredito {
 export interface Hoje {
   dataEpss: string;
   versaoKev: string;
+  versaoCve: string;
+  totalCve: number;
   totalKev: number;
   totalEpss: number;
   recentes: { id: string; nome: string; desde: string; ransomware: boolean }[];

@@ -155,7 +155,7 @@ export default function App() {
             window.scrollTo(0, 0);
           }} />
         ) : tela.nome === "detalhe" ? (
-          <Detalhe item={tela.item} exposta={exposta}
+          <Detalhe key={tela.item.sinais.id} item={tela.item} exposta={exposta}
             voltar={() => {
               if (voltarLista) { history.replaceState(null, "", location.pathname + location.search); setTela(voltarLista); setVoltarLista(null); }
               else inicio();

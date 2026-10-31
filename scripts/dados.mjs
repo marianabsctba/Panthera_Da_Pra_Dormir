@@ -1,28 +1,47 @@
-// Monta os dados estáticos do site a partir dos feeds públicos (KEV e EPSS).
+// Monta os dados estáticos do site a partir das fontes públicas (KEV, EPSS e a
+// base inteira de CVEs).
 // Roda todo dia no GitHub Actions. Se um feed vier estranho, falha sem publicar
 // e o site continua com os dados do dia anterior.
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
+import yauzl from "yauzl";
+import { compactar, lerRegistroCve } from "../src/registro.ts";
 
 const RAIZ = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SAIDA = join(RAIZ, "public", "dados");
 const KEV = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json";
 const EPSS_HOJE = "https://epss.empiricalsecurity.com/epss_scores-current.csv.gz";
 const EPSS_DIA = (d) => `https://epss.empiricalsecurity.com/epss_scores-${d}.csv.gz`;
-const CVE_API = (id) => `https://cveawg.mitre.org/api/cve/${id}`;
+const BASE_CVE = "https://api.github.com/repos/CVEProject/cvelistV5/releases/latest";
+const TEMPO_BASE = 900000;
 
 // Abaixo disso o feed veio cortado ou mudou de formato.
 const MIN_KEV = 1000;
 const MIN_EPSS = 200000;
+const MIN_CVE = 300000;
+const MAX_CVE_COM_ERRO = 100;
+const TENTATIVAS = 4;
 // Só conta como "subiu de repente" quem chegou a uma chance relevante.
 const EPSS_MIN_SUBINDO = 0.1;
 
-async function baixar(url) {
-  const r = await fetch(url, { signal: AbortSignal.timeout(120000) });
-  if (!r.ok) throw new Error(`${url} respondeu ${r.status}`);
-  return r;
+async function baixar(url, tempo = 120000) {
+  for (let tentativa = 1; ; tentativa++) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(tempo) });
+      if (!r.ok) throw new Error(`${url} respondeu ${r.status}`);
+      return r;
+    } catch (e) {
+      if (tentativa >= TENTATIVAS) throw e;
+      console.log(`Falhou ${url}, tentando de novo: ${e.cause?.code ?? e.message}`);
+      await new Promise((ok) => setTimeout(ok, tentativa * 5000));
+    }
+  }
 }
 
 async function lerEpss(url) {
@@ -45,14 +64,63 @@ function caixa(cve) {
   return { ano, grupo: num.slice(-2).padStart(2, "0"), num };
 }
 
-async function tituloDe(cve) {
+function abrirZip(caminho) {
+  return new Promise((ok, erro) => yauzl.open(caminho, { lazyEntries: true }, (e, z) => (e ? erro(e) : ok(z))));
+}
+
+function abrirEntrada(zip, entrada) {
+  return new Promise((ok, erro) => zip.openReadStream(entrada, (e, s) => (e ? erro(e) : ok(s))));
+}
+
+function percorrerZip(zip, f) {
+  return new Promise((ok, erro) => {
+    zip.on("entry", (entrada) => {
+      f(entrada).then(() => zip.readEntry()).catch((e) => { zip.close(); erro(e); });
+    });
+    zip.on("end", ok);
+    zip.on("error", erro);
+    zip.readEntry();
+  });
+}
+
+// A base vem como um zip dentro de outro, com um JSON por CVE.
+async function lerBaseCve(porCve) {
+  const pasta = await mkdtemp(join(tmpdir(), "dormir-"));
   try {
-    const j = await (await baixar(CVE_API(cve))).json();
-    const cna = j.containers?.cna;
-    const produto = cna?.affected?.find((a) => a.product && a.product !== "n/a")?.product;
-    return cna?.title ?? produto ?? null;
-  } catch {
-    return null;
+    const release = await (await baixar(BASE_CVE)).json();
+    const ativo = release.assets?.find((a) => /_all_CVEs_at_midnight\.zip\.zip$/.test(a.name));
+    if (!ativo) throw new Error("base de CVEs sem o arquivo esperado");
+    const r = await baixar(ativo.browser_download_url, TEMPO_BASE);
+    const fora = join(pasta, "fora.zip");
+    await pipeline(Readable.fromWeb(r.body), createWriteStream(fora));
+
+    const dentro = join(pasta, "cves.zip");
+    const zipFora = await abrirZip(fora);
+    await percorrerZip(zipFora, async (e) => {
+      if (e.fileName.endsWith(".zip")) await pipeline(await abrirEntrada(zipFora, e), createWriteStream(dentro));
+    });
+
+    let total = 0;
+    let erros = 0;
+    const zip = await abrirZip(dentro);
+    await percorrerZip(zip, async (e) => {
+      if (!/CVE-\d{4}-\d+\.json$/.test(e.fileName)) return;
+      const partes = [];
+      for await (const p of await abrirEntrada(zip, e)) partes.push(p);
+      try {
+        const j = JSON.parse(Buffer.concat(partes).toString("utf8"));
+        const estado = j.cveMetadata?.state;
+        if (estado !== "PUBLISHED" && estado !== "REJECTED") return;
+        porCve(j.cveMetadata.cveId, lerRegistroCve(j));
+        total++;
+      } catch {
+        erros++;
+      }
+    });
+    if (erros > MAX_CVE_COM_ERRO) throw new Error(`${erros} CVEs ilegíveis na base`);
+    return { total, versao: release.tag_name };
+  } finally {
+    await rm(pasta, { recursive: true, force: true });
   }
 }
 
@@ -91,6 +159,12 @@ for (const v of kev.vulnerabilities) {
   }
 }
 
+const base = await lerBaseCve((cve, parte) => {
+  const r = registro(cve);
+  if (r) Object.assign(r, compactar(parte));
+});
+if (base.total < MIN_CVE) throw new Error("base de CVEs veio pequena demais");
+
 await rm(SAIDA, { recursive: true, force: true });
 for (const [chave, conteudo] of caixas) {
   const arquivo = join(SAIDA, "c", `${chave}.json`);
@@ -112,10 +186,13 @@ for (const [cve, [e]] of epss.notas) {
 }
 subindo.sort((a, b) => b.epss - b.antes - (a.epss - a.antes));
 const topo = subindo.slice(0, 6);
-for (const s of topo) s.nome = await tituloDe(s.id);
+for (const s of topo) {
+  const r = registro(s.id);
+  s.nome = r?.t ?? r?.o ?? null;
+}
 
 await writeFile(join(SAIDA, "hoje.json"), JSON.stringify({
-  dataEpss: epss.data, versaoKev: kev.catalogVersion, totalKev: kev.vulnerabilities.length, totalEpss: epss.notas.size, recentes, subindo: topo,
+  dataEpss: epss.data, versaoKev: kev.catalogVersion, versaoCve: base.versao, totalCve: base.total, totalKev: kev.vulnerabilities.length, totalEpss: epss.notas.size, recentes, subindo: topo,
 }));
 
-console.log(`KEV ${kev.vulnerabilities.length}, EPSS ${epss.notas.size} (${epss.data}), ${caixas.size} arquivos`);
+console.log(`CVE ${base.total}, KEV ${kev.vulnerabilities.length}, EPSS ${epss.notas.size} (${epss.data}), ${caixas.size} arquivos`);

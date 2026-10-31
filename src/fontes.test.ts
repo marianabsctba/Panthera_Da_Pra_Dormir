@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { lerRegistroCve, sinaisDeOsv } from "./fontes";
+import { sinaisDeOsv } from "./fontes";
+import { compactar, lerRegistroCve, parteLocal } from "./registro";
+import { decidir } from "./veredito";
 
 describe("lerRegistroCve", () => {
   it("rejeitado", () => {
@@ -47,5 +49,31 @@ describe("sinaisDeOsv", () => {
   it("faixa sem número vira nota aproximada", () => {
     const s = sinaisDeOsv({ id: "GHSA-z", database_specific: { severity: "HIGH" } });
     expect(s.cvss).toMatchObject({ aproximada: true, rotulo: "alta" });
+  });
+});
+
+describe("compactar", () => {
+  const registro: Parameters<typeof lerRegistroCve>[0] = {
+    cveMetadata: { state: "PUBLISHED", datePublished: "2026-04-14T23:21:22.242Z" },
+    containers: {
+      cna: { title: "Falha", affected: [{ vendor: "x", product: "y" }], descriptions: [{ lang: "en", value: "texto longo" }], metrics: [{ cvssV3_1: { baseScore: 10, vectorString: "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H" } }] },
+      adp: [{ metrics: [{ other: { type: "ssvc", content: { options: [{ Exploitation: "poc" }, { Automatable: "no" }] } } }] }],
+    },
+  };
+  it("o veredito é o mesmo com o registro completo e com o enxuto", () => {
+    const completo = lerRegistroCve(registro);
+    const enxuto = parteLocal(compactar(completo));
+    const agora = new Date("2026-10-31T12:00:00Z");
+    const a = decidir({ id: "CVE-2026-39842", ...completo, epss: 0.009 }, "nao_sei", false, agora);
+    const b = decidir({ id: "CVE-2026-39842", ...enxuto, epss: 0.009 }, "nao_sei", false, agora);
+    expect(b.nivel).toBe(a.nivel);
+    expect(b.nivel).toBe("cedo");
+    expect(b.motivos.map((m) => m.titulo)).toEqual(a.motivos.map((m) => m.titulo));
+  });
+  it("deixa a descrição de fora", () => {
+    expect(JSON.stringify(compactar(lerRegistroCve(registro)))).not.toContain("texto longo");
+  });
+  it("rejeitado continua rejeitado", () => {
+    expect(parteLocal(compactar({ estado: "rejeitado" })).estado).toBe("rejeitado");
   });
 });

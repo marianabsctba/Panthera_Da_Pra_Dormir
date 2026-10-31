@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AlarmClock, ArrowLeft, BedDouble, Check, CircleAlert, CircleCheck, CircleHelp, Copy, Eye, Ghost, Info, Send, Siren, TriangleAlert, type LucideIcon } from "lucide-react";
+import { complementoCve } from "./fontes";
 import { ACOES, ROTULOS, TITULOS, piada } from "./piadas";
+import type { ParteCve } from "./registro";
 import { ORDEM, decidir } from "./veredito";
 import { explicarVetor } from "./vetor";
-import type { Exposicao, Item, LeituraPacotes, Motivo, Nivel, Veredito } from "./tipos";
+import type { Exposicao, Item, LeituraPacotes, Motivo, Nivel, Sinais, Veredito } from "./tipos";
 
 const ICONES: Record<Nivel, LucideIcon> = {
   acorda: Siren, cedo: AlarmClock, olho: Eye, dorme: BedDouble, incerto: CircleHelp, inexistente: Ghost,
@@ -19,6 +21,16 @@ export interface Exposta {
 
 function vereditoDe(item: Item, e: Exposicao): Veredito {
   return decidir(item.sinais, e, item.pacote?.soDev);
+}
+
+function misturar(s: Sinais, extra: ParteCve | null): Sinais {
+  if (extra?.estado !== "publicado") return s;
+  return {
+    ...s,
+    cvss: s.cvss ?? extra.cvss, exploracao: s.exploracao ?? extra.exploracao, automatizavel: s.automatizavel || extra.automatizavel,
+    publicado: s.publicado ?? extra.publicado, titulo: s.titulo ?? extra.titulo, produto: s.produto ?? extra.produto,
+    descricao: extra.descricao ?? s.descricao, referencias: extra.referencias ?? s.referencias,
+  };
 }
 
 function Exposicao_({ exposta }: { exposta: Exposta }) {
@@ -37,8 +49,21 @@ function Exposicao_({ exposta }: { exposta: Exposta }) {
 }
 
 export function Detalhe({ item, exposta, voltar, rotuloVoltar }: { item: Item; exposta: Exposta; voltar: () => void; rotuloVoltar: string }) {
-  const { sinais: s, pacote, corrigeEm } = item;
-  const v = vereditoDe(item, exposta.valor);
+  const { pacote, corrigeEm } = item;
+  const eCve = item.sinais.id.startsWith("CVE-");
+  const [extra, setExtra] = useState<ParteCve | null>(null);
+  const [buscando, setBuscando] = useState(false);
+  const buscar = () => {
+    if (!eCve || extra || buscando) return;
+    setBuscando(true);
+    void complementoCve(item.sinais.id).then(setExtra).finally(() => setBuscando(false));
+  };
+  // CVE ainda sem nota na base do dia: o registro pode já ter a nota.
+  useEffect(() => {
+    if (item.sinais.estado === "publicado" && !item.sinais.cvss) buscar();
+  }, []);
+  const s = misturar(item.sinais, extra);
+  const v = vereditoDe({ ...item, sinais: s }, exposta.valor);
   const Icone = ICONES[v.nivel];
   const [copiado, setCopiado] = useState(false);
   const linhas = explicarVetor(s.cvss?.vetor);
@@ -113,19 +138,16 @@ export function Detalhe({ item, exposta, voltar, rotuloVoltar }: { item: Item; e
         </>
       )}
 
-      {(s.titulo || s.descricao) && (
-        <details className="detalhes">
-          <summary>Descrição oficial, em inglês</summary>
+      {!fim && (
+        <details className="detalhes" onToggle={(e) => { if (e.currentTarget.open) buscar(); }}>
+          <summary>Descrição oficial e referências, em inglês</summary>
           {s.titulo && <p><strong>{s.titulo}</strong></p>}
           {s.descricao && <p className="descricao">{s.descricao}</p>}
-        </details>
-      )}
-      {s.referencias && s.referencias.length > 0 && (
-        <details className="detalhes">
-          <summary>Referências</summary>
+          {buscando && <p className="dica">Buscando no registro…</p>}
+          {eCve && extra && extra.estado !== "publicado" && <p className="dica">Não consegui buscar a descrição agora. O veredito acima não depende dela.</p>}
           <ul className="referencias">
-            {s.id.startsWith("CVE-") && <li><a href={`https://www.cve.org/CVERecord?id=${s.id}`} target="_blank" rel="noreferrer">Registro em cve.org</a></li>}
-            {s.referencias.map((r) => <li key={r}><a href={r} target="_blank" rel="noreferrer noopener">{r}</a></li>)}
+            {eCve && <li><a href={`https://www.cve.org/CVERecord?id=${s.id}`} target="_blank" rel="noreferrer">Registro em cve.org</a></li>}
+            {s.referencias?.map((r) => <li key={r}><a href={r} target="_blank" rel="noreferrer noopener">{r}</a></li>)}
           </ul>
         </details>
       )}

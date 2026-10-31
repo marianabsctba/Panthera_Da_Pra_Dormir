@@ -7,8 +7,8 @@ O objetivo é ensinar a priorizar. O CVSS mede o estrago possível, o EPSS estim
 ## Como funciona
 
 - Site estático, sem servidor, publicado no GitHub Pages.
-- Um GitHub Action roda todo dia e baixa o [KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) e o [EPSS](https://www.first.org/epss/). O script `scripts/dados.mjs` divide os dados em arquivos pequenos por ano e dois últimos dígitos do CVE, e o navegador baixa só o que precisa. Se um feed vier cortado, a publicação falha e o site fica com os dados do dia anterior.
-- Gravidade, descrição e dados de SSVC vêm do [registro público de CVEs](https://www.cve.org/), consultado pelo navegador.
+- Um GitHub Action roda todo dia e baixa o [KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog), o [EPSS](https://www.first.org/epss/) e a [base inteira de CVEs](https://github.com/CVEProject/cvelistV5). O script `scripts/dados.mjs` guarda só o que o veredito usa e divide tudo em arquivos pequenos por ano e dois últimos dígitos do CVE, e o navegador baixa só o que precisa. Se uma fonte vier cortada, a publicação falha e o site fica com os dados do dia anterior.
+- O [registro público de CVEs](https://www.cve.org/) é consultado pelo navegador só em três casos: CVE mais novo que os dados do dia, CVE ainda sem nota, ou quando a pessoa abre a descrição oficial.
 - Dependências são consultadas no [OSV](https://osv.dev/), depois de a pessoa confirmar. Vão só nomes e versões. Pacotes de registro privado do `package-lock.json` ficam de fora.
 
 ## O critério
