@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <!-- Só conversa com os dois bancos públicos de vulnerabilidades. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://cveawg.mitre.org https://api.osv.dev; object-src 'none'; base-uri 'self'; form-action 'none'"
+    />
+    <meta name="theme-color" content="#0b0b0b" />
+    <meta name="description" content="Saiu uma vulnerabilidade com manchete apocalíptica? Descubra se precisa acordar alguém ou se dá para dormir." />
+    <link rel="icon" type="image/webp" href="./pantera.webp" />
+    <link rel="apple-touch-icon" href="./icone-192.png" />
+    <title>Dá Pra Dormir?</title>
+  </head>
+  <body>
+    <div id="raiz"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

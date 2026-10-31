@@ -1,0 +1,6 @@
+node_modules/
+dist/
+*.tsbuildinfo
+# Gerado todo dia por scripts/dados.mjs
+public/dados/
+.claude/
