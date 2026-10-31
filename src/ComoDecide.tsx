@@ -28,7 +28,7 @@ export default function ComoDecide({ voltar }: { voltar: () => void }) {
       <table className="regra">
         <tbody>
           <tr className="acorda"><th scope="row">{TITULOS.acorda}</th><td>Está no KEV, ou tem exploração ativa, ou EPSS de 50% para cima.</td></tr>
-          <tr className="cedo"><th scope="row">{TITULOS.cedo}</th><td>EPSS de 10% para cima, ou exploit público fácil de automatizar, ou nota crítica, remota, sem login e publicada há menos de 14 dias.</td></tr>
+          <tr className="cedo"><th scope="row">{TITULOS.cedo}</th><td>EPSS de 5% para cima, ou exploit público fácil de automatizar, ou nota 9 para cima em ataque remoto que não exige admin.</td></tr>
           <tr className="olho"><th scope="row">{TITULOS.olho}</th><td>Nota 7 para cima, ou EPSS de 1% para cima, ou exploit público.</td></tr>
           <tr className="dorme"><th scope="row">{TITULOS.dorme}</th><td>Todo o resto.</td></tr>
         </tbody>
@@ -48,6 +48,7 @@ export default function ComoDecide({ voltar }: { voltar: () => void }) {
         <li>O que tem naquele servidor. Uma falha média no sistema que guarda dado de saúde pode ser pior que uma crítica no servidor de testes.</li>
         <li>Se já invadiram. Estar corrigido não significa estar limpo.</li>
         <li>O que ninguém confirmou ainda. Fora do KEV não quer dizer fora de perigo.</li>
+        <li>O futuro. O EPSS costuma reagir depois do ataque: muita falha entra no KEV com EPSS baixo. Por isso, nota crítica e remota nunca fica só na fila.</li>
       </ul>
       <p>Isto é um ponto de partida para priorizar, não um parecer sobre o seu ambiente. Se o veredito contrariar o que você sabe da sua casa, confie no que você sabe.</p>
 

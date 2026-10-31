@@ -16,11 +16,30 @@ describe("decidir", () => {
   it("KEV acorda mesmo com EPSS e nota baixos", () => {
     expect(nivel({ kev: KEV, epss: 0.001, cvss: { nota: 4, vetor: REMOTO } })).toBe("acorda");
   });
-  it("nota 9,8 antiga sem exploração não acorda ninguém", () => {
-    expect(nivel({ epss: 0.002, cvss: { nota: 9.8, vetor: REMOTO } })).toBe("olho");
-  });
-  it("nota 9,8 recém-publicada põe o alarme, porque o EPSS ainda não reagiu", () => {
+  it("nota 9,8 remota sem sinal de exploração não acorda ninguém, mas põe o alarme", () => {
+    expect(nivel({ epss: 0.002, cvss: { nota: 9.8, vetor: REMOTO } })).toBe("cedo");
     expect(nivel({ epss: 0.002, cvss: { nota: 9.8, vetor: REMOTO }, publicado: "2026-10-25" })).toBe("cedo");
+  });
+  it("nota crítica local não põe o alarme só pela nota", () => {
+    expect(nivel({ epss: 0.002, cvss: { nota: 9.3, vetor: LOCAL } })).toBe("olho");
+  });
+  it("gravidade crítica sem vetor conta como remota até prova em contrário", () => {
+    expect(nivel({ cvss: { nota: 9.5, aproximada: true, rotulo: "crítica" }, epss: 0.001 })).toBe("cedo");
+  });
+  it("nota crítica remota na rede interna baixa para a semana", () => {
+    expect(nivel({ epss: 0.002, cvss: { nota: 9.8, vetor: REMOTO } }, "interna")).toBe("olho");
+  });
+  it("EPSS de 5% para cima põe o alarme", () => {
+    expect(nivel({ epss: 0.08, cvss: { nota: 8.8, vetor: REMOTO } })).toBe("cedo");
+  });
+  it("CVSS 10 remoto com exploit público põe o alarme, mesmo com EPSS baixo e login comum (CVE-2026-39842)", () => {
+    const x = { epss: 0.00924, exploracao: "poc" as const, automatizavel: false, publicado: "2026-04-14", cvss: { nota: 10, vetor: "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H" } };
+    const v = decidir(s(x), "nao_sei", false, AGORA);
+    expect(v.nivel).toBe("cedo");
+    expect(v.motivos.find((m) => m.titulo.startsWith("EPSS"))?.tipo).toBe("atencao");
+  });
+  it("exploit público que exige admin não sobe sozinho", () => {
+    expect(nivel({ epss: 0.005, exploracao: "poc", cvss: { nota: 9.1, vetor: "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:C/C:H/I:H/A:H" } })).toBe("olho");
   });
   it("EPSS alto acorda, mesmo fora do KEV", () => {
     expect(nivel({ epss: 0.7, cvss: { nota: 7, vetor: REMOTO } })).toBe("acorda");

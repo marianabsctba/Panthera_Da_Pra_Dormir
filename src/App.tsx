@@ -213,7 +213,7 @@ export default function App() {
                 </section>
               </div>
             )}
-            <a className="link-grande" href="#como">Como a gente decide (e por que nota 9,8 não quer dizer nada sozinha) <ArrowUpRight size={16} aria-hidden /></a>
+            <a className="link-grande" href="#como">Como a gente decide (e por que a nota sozinha não basta) <ArrowUpRight size={16} aria-hidden /></a>
           </section>
         )}
       </main>

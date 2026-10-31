@@ -4,7 +4,7 @@ import { partesVetor } from "./vetor";
 // Limites de decisão. É um critério nosso, explicado na tela "Como a gente decide".
 export const EPSS_CERTO = 0.9;
 export const EPSS_ALTO = 0.5;
-export const EPSS_MEDIO = 0.1;
+export const EPSS_MEDIO = 0.05;
 export const EPSS_BAIXO = 0.01;
 export const CVSS_CRITICO = 9;
 export const CVSS_ALTO = 7;
@@ -57,7 +57,6 @@ export function decidir(s: Sinais, exposicao: Exposicao, soDev = false, agora = 
   const recente = idade !== undefined && idade <= DIAS_RECENTE;
   const nota = s.cvss?.nota;
   const epss = s.epss;
-  const semLogin = v.PR === "N" && v.UI === "N";
 
   if (s.kev) {
     motivos.push({
@@ -79,9 +78,11 @@ export function decidir(s: Sinais, exposicao: Exposicao, soDev = false, agora = 
 
   if (epss !== undefined) {
     const faixa = epss >= EPSS_ALTO ? "ruim" : epss >= EPSS_MEDIO ? "atencao" : "bom";
+    // O EPSS olha a internet inteira: produto de nicho pontua baixo mesmo com falha grave.
+    const graveMesmoAssim = faixa === "bom" && ((nota !== undefined && nota >= CVSS_CRITICO) || s.exploracao === "poc");
     motivos.push({
-      tipo: faixa, titulo: `EPSS ${porcentagem(epss)}`,
-      texto: `Chance estimada de exploração nos próximos 30 dias. ${epss >= EPSS_CERTO ? "A moeda já caiu, e caiu do lado errado." : faixa === "ruim" ? "Cara ou coroa, com a moeda torcendo contra você." : faixa === "atencao" ? "Não é a maioria, mas já é bem acima do normal." : "Baixa. A maioria das falhas nunca é explorada, e essa parece ser uma delas."}`,
+      tipo: graveMesmoAssim ? "atencao" : faixa, titulo: `EPSS ${porcentagem(epss)}`,
+      texto: `Chance estimada de exploração nos próximos 30 dias. ${epss >= EPSS_CERTO ? "A moeda já caiu, e caiu do lado errado." : faixa === "ruim" ? "Cara ou coroa, com a moeda torcendo contra você." : faixa === "atencao" ? "Não é a maioria, mas já é bem acima do normal." : graveMesmoAssim ? "Parece pouco, mas o EPSS olha a internet inteira. Atacante em massa não liga para produto de nicho, e quem mira especificamente em você não entra nessa conta. Se você usa isso, não se console com esse número." : "Baixa. A maioria das falhas nunca é explorada, e essa parece ser uma delas."}`,
     });
   } else {
     motivos.push({ tipo: "info", titulo: "Sem EPSS", texto: "Ainda não há estimativa de exploração para esse CVE." });
@@ -104,9 +105,15 @@ export function decidir(s: Sinais, exposicao: Exposicao, soDev = false, agora = 
   if (s.kev || s.exploracao === "active") n = 3;
   else if (epss !== undefined && epss >= EPSS_ALTO) n = remoto === false ? 2 : 3;
   else if ((epss !== undefined && epss >= EPSS_MEDIO) || (s.exploracao === "poc" && s.automatizavel)) n = 2;
-  else if (nota !== undefined && nota >= CVSS_CRITICO && remoto && semLogin && recente) {
+  else if (nota !== undefined && nota >= CVSS_CRITICO && remoto !== false && v.PR !== "H") {
+    // Falha crítica já explorada costuma ter EPSS baixo: ele reage depois do ataque.
     n = 2;
-    motivos.push({ tipo: "atencao", titulo: "Recém-publicado", texto: "Crítico, remoto, sem login e com menos de duas semanas. O EPSS ainda não teve tempo de reagir, então não dá para confiar no número baixo." });
+    motivos.push({
+      tipo: "atencao", titulo: s.exploracao === "poc" ? "Crítico e com exploit na mão" : "Crítico e remoto",
+      texto: s.exploracao === "poc"
+        ? "Nota crítica, ataque remoto, sem precisar de admin e com exploit público. O trabalho difícil alguém já fez. Falta só alguém se interessar pelo seu servidor."
+        : `Nota crítica, ataque remoto e sem precisar de admin. ${recente ? "Foi publicado há menos de duas semanas, então o EPSS ainda nem teve tempo de reagir." : "Muita falha assim já estava sendo explorada enquanto o EPSS ainda dizia que era pouco provável."} Não é para hoje de madrugada, mas também não é para a fila.`,
+    });
   } else if ((nota !== undefined && nota >= CVSS_ALTO) || (epss !== undefined && epss >= EPSS_BAIXO) || s.exploracao === "poc") n = 1;
   else if (nota === undefined && (epss === undefined || recente)) {
     if (s.estado === "sem_consulta") motivos.push({ tipo: "info", titulo: "Consulta incompleta", texto: "Não conseguimos falar com o registro de CVEs agora, então falta a gravidade. Tente de novo em alguns minutos." });
