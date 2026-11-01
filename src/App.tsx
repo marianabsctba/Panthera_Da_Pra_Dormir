@@ -25,6 +25,9 @@ function gravar(chave: string, valor: string) {
   try { localStorage.setItem(chave, valor); } catch { /* sem armazenamento */ }
 }
 
+// A chave antiga guardava o tema do sistema como se fosse escolha de quem visitou.
+const CHAVE_TEMA = "dormir:tema-v2";
+
 function dataBr(iso: string): string {
   const [a, m, d] = iso.split("-");
   return `${d}/${m}/${a}`;
@@ -37,17 +40,14 @@ export default function App() {
   const [dados, setDados] = useState<Hoje | null>(null);
   const [exposicao, setExposicao] = useState<Exposicao>("nao_sei");
   const [voltarLista, setVoltarLista] = useState<Extract<Tela, { nome: "lista" }> | null>(null);
-  const [tema, setTema] = useState<"claro" | "escuro">(() => {
-    const t = preferencia("dormir:tema");
-    if (t === "claro" || t === "escuro") return t;
-    return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "claro" : "escuro";
-  });
+  const [tema, setTema] = useState<"claro" | "escuro">(() => (preferencia(CHAVE_TEMA) === "claro" ? "claro" : "escuro"));
   const entrada = useRef<HTMLInputElement>(null);
+  const rolagemLista = useRef(0);
 
   useEffect(() => {
     document.documentElement.dataset.tema = tema;
     document.querySelector('meta[name="theme-color"]')?.setAttribute("content", tema === "claro" ? "#ffffff" : "#0b0b0b");
-    gravar("dormir:tema", tema);
+    gravar(CHAVE_TEMA, tema);
   }, [tema]);
 
   useEffect(() => { void lerHoje().then(setDados); }, []);
@@ -89,6 +89,23 @@ export default function App() {
     return () => window.removeEventListener("hashchange", seguir);
   }, [umCve, pesquisar]);
 
+  // Botão voltar do celular: do detalhe para a lista, e da consulta para o começo.
+  useEffect(() => {
+    const voltou = () => {
+      if (como) return;
+      if (voltarLista) {
+        setTela(voltarLista);
+        setVoltarLista(null);
+        requestAnimationFrame(() => window.scrollTo(0, rolagemLista.current));
+      } else if (!location.hash) {
+        setTela({ nome: "inicio" });
+        window.scrollTo(0, 0);
+      }
+    };
+    window.addEventListener("popstate", voltou);
+    return () => window.removeEventListener("popstate", voltou);
+  }, [como, voltarLista]);
+
   const inicio = () => {
     history.replaceState(null, "", location.pathname + location.search);
     setComo(false);
@@ -104,6 +121,7 @@ export default function App() {
         setTela({ nome: "inicio", erro: "Esse arquivo não tem nenhum pacote público com versão fixa para consultar." });
         return;
       }
+      history.pushState(null, "");
       setTela({ nome: "confirmar", leitura });
       window.scrollTo(0, 0);
       return;
@@ -117,6 +135,7 @@ export default function App() {
     }
     if (cves.length === 1) { location.hash = cves[0]; return; }
     const usados = cves.slice(0, LIMITE_CVES);
+    history.pushState(null, "");
     setTela({ nome: "carregando", etapa: `Consultando ${usados.length} CVEs` });
     const sinais = await emParalelo(usados, consultarCve, (f) => setTela({ nome: "carregando", etapa: `Consultando ${f} de ${usados.length} CVEs` }));
     setTela({ nome: "lista", itens: sinais.map((s) => ({ sinais: s })), origem: `${usados.length} CVEs colados`, cortados: cves.length - usados.length, privados: 0, semVersao: 0 });
@@ -169,6 +188,8 @@ export default function App() {
           <Confirmar leitura={tela.leitura} confirmar={() => void consultar(tela.leitura)} voltar={inicio} />
         ) : tela.nome === "lista" ? (
           <Lista {...tela} exposta={exposta} voltar={inicio} abrir={(item) => {
+            rolagemLista.current = window.scrollY;
+            history.pushState(null, "");
             setVoltarLista(tela);
             setTela({ nome: "detalhe", item });
             window.scrollTo(0, 0);
@@ -176,7 +197,7 @@ export default function App() {
         ) : tela.nome === "detalhe" ? (
           <Detalhe key={tela.item.sinais.id} item={tela.item} exposta={exposta}
             voltar={() => {
-              if (voltarLista) { history.replaceState(null, "", location.pathname + location.search); setTela(voltarLista); setVoltarLista(null); }
+              if (voltarLista) history.back();
               else inicio();
             }}
             rotuloVoltar={voltarLista ? "Voltar para a lista" : "Consultar outro"} />
@@ -193,7 +214,7 @@ export default function App() {
                 <BedDouble size={30} aria-hidden /> Posso dormir?
               </button>
             </form>
-            <input ref={entrada} type="file" hidden accept=".json,.txt,.mod,.lock"
+            <input ref={entrada} type="file" hidden
               onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; void arquivo(f); }} />
             <button className="botao-secundario" onClick={() => entrada.current?.click()}>
               <FileUp size={20} aria-hidden /> Abrir package-lock.json, requirements.txt ou go.mod

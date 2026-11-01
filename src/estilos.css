@@ -276,6 +276,8 @@ button:disabled { opacity: 0.4; cursor: default; }
   .paineis, .tres { grid-template-columns: 1fr; }
   .paineis h2 { min-height: 0; }
   .tabela-vetor th { width: 45%; }
-  .linha-dados { max-width: 40%; }
+  .linha { flex-wrap: wrap; row-gap: 8px; }
+  .linha-corpo { flex-basis: calc(100% - 34px); }
+  .linha-dados { flex-basis: 100%; max-width: none; justify-content: flex-start; padding-left: 34px; }
   .regra th { width: 42%; }
 }
